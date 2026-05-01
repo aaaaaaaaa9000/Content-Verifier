@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type, Schema } from '@google/genai';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -75,37 +75,108 @@ const SYSTEM_PROMPT = `أريد منك أن تفحص المحتوى التالي
 إذا كان المحتوى سياسيا: اعرض وجهات النظر المختلفة بحياد، لكن لا تساوي بين رأي موثق ورأي بلا دليل. فرّق بين الخبر، الرأي، التحليل، الدعاية، الاتهام، التحريض، والموقف الأيديولوجي.
 إذا كان المحتوى دينيا أو عقائديا: لا تحكم على صحة العقائد الدينية أو الغيبية كمسألة إيمانية. لكن يمكنك فحص الادعاءات القابلة للتحقق المرتبطة بها، مثل الادعاءات التاريخية، اللغوية، الطبية، العلمية، الاجتماعية، أو القانونية.
 
-خامس عشر: اعرض النتيجة في جدول (استخدم Markdown لبناء الجدول):
-رقم الادعاء | نص الادعاء | نوع الادعاء | قابل للتحقق؟ | قوة الدليل | التقييم | الدرجة من 10 | سبب التقييم | الصياغة الأدق
+خامس عشر: التقرير المفصل
+قم بكتابة تقرير مفصل بصيغة Markdown يتضمن جدول الادعاءات (رقم، نص، نوع، قابل للتحقق، قوة الدليل، التقييم، الدرجة، السبب، الصياغة الأدق) بالإضافة إلى كافة التفاصيل المذكورة في الخطوات السابقة، بشكل مرتب وواضح ومتسلسل.
 
-سادس عشر: اختم بتقييم نهائي:
-ملخص عام. نوع المحتوى. مستوى الخطورة. درجة الدقة العامة من 10 إذا كان مناسبا. أقوى ما في المحتوى. أضعف ما في المحتوى. أخطر ادعاء مضلل. أهم المعلومات الناقصة. أبرز المغالطات والانحيازات.
-هل المحتوى علمي، تعليمي، رأي شخصي، تسويقي، سياسي، اجتماعي، مضلل، علم زائف، أم خليط؟
-هل يصلح للنشر كما هو؟ ما التعديلات اللازمة قبل النشر؟ ما الذي كان يجب أن يقوله صاحب المحتوى ليكون أدق؟ 
-نسخة مصححة مختصرة بلغة مناسبة للجمهور العام.
+سادس عشر: الخلاصة المهيكلة
+يجب أن ترجع ردك بصيغة JSON مقسمة إلى قسمين: Data للبيانات المهيكلة للوحة البيانات (Bento Grid) وقسم FullReport للتقرير المفصل بـ Markdown.`;
 
-قواعد مهمة جدا:
-لا تجامل صاحب المحتوى. لا تهاجم صاحب المحتوى. لا تنحز لشهرته أو مكانته أو أسلوبه. لا تنحز لآرائي أنا أو لما تعرفه عني. لا تفترض أن الكلام صحيح لأنه منتشر. لا تفترض أن الكلام صحيح لأنه من شخص مشهور أو محبوب أو موثوق جماهيريا. لا تفترض أن الكلام خطأ لأنه يخالف رأيي. لا تستخدم لغة مهينة. لا تحول الرأي إلى حقيقة. لا تحول التجربة الشخصية إلى دليل عام. لا تساوي بين رأي بلا دليل ودليل قوي. لا تساوي بين الحياد والمساواة الزائفة.
-لو لا توجد أدلة كافية، قل: "لا توجد أدلة كافية للحكم بثقة." لو هناك خلاف معتبر، قل إن المسألة محل خلاف. لو المعلومات قد تكون حديثة أو متغيرة، ابحث عن مصادر محدثة إن كانت لديك القدرة على البحث. لو لا تستطيع البحث، صرّح بحدود إجابتك. اذكر المصادر بوضوح عند استخدامها.
-دائماً صغ النتيجة بشكل مرتب باستخدام Markdown (عناوين، قوائم، وجداول).`;
+export interface VerificationResponse {
+  bentoData: {
+    investigationLevel: { title: string; description: string; };
+    riskLevel: { badge: string; details: string; isHigh: boolean; };
+    score: number;
+    claims: Array<{ text: string; assessment: string; isDangerous: boolean; }>;
+    misleadingPatterns: string[];
+    expertise: string[];
+    conclusion: { text: string; recommendation: string; };
+  };
+  fullReport: string;
+}
 
-export async function verifyContent(text: string): Promise<string> {
+const responseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    bentoData: {
+      type: Type.OBJECT,
+      properties: {
+        investigationLevel: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING, description: "e.g. فحص عميق" },
+            description: { type: Type.STRING, description: "e.g. المحتوى يتناول ادعاءات طبية حساسة" }
+          },
+          required: ["title", "description"]
+        },
+        riskLevel: {
+          type: Type.OBJECT,
+          properties: {
+            badge: { type: Type.STRING, description: "e.g. عالي الخطورة" },
+            details: { type: Type.STRING, description: "e.g. خطر صحي: قد يدفع لترك العلاج" },
+            isHigh: { type: Type.BOOLEAN }
+          },
+          required: ["badge", "details", "isHigh"]
+        },
+        score: { type: Type.NUMBER, description: "الدرجة العامة من 10" },
+        claims: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING, description: "أهم الادعاءات باختصار شديد (لا يزيد عن سطر)" },
+              assessment: { type: Type.STRING, description: "e.g. مضلل، بلا دليل، صحيح جزئيا" },
+              isDangerous: { type: Type.BOOLEAN }
+            },
+            required: ["text", "assessment", "isDangerous"]
+          }
+        },
+        misleadingPatterns: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        },
+        expertise: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        },
+        conclusion: {
+          type: Type.OBJECT,
+          properties: {
+            text: { type: Type.STRING, description: "خلاصة التقييم في 3-4 أسطر" },
+            recommendation: { type: Type.STRING, description: "e.g. لا ينصح بالنشر إطلاقاً" }
+          },
+          required: ["text", "recommendation"]
+        }
+      },
+      required: ["investigationLevel", "riskLevel", "score", "claims", "misleadingPatterns", "expertise", "conclusion"]
+    },
+    fullReport: {
+      type: Type.STRING,
+      description: "تقرير مفصل Markdown كما هو مطلوب في الخطوة 15 و 16 في التعليمات"
+    }
+  },
+  required: ["bentoData", "fullReport"]
+};
+
+export async function verifyContent(text: string): Promise<VerificationResponse> {
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-pro',
       contents: text,
       config: {
         systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        responseSchema: responseSchema,
       },
     });
 
     if (!response.text) {
-      throw new Error('لم يتم إرجاع أي نص من النموذج.');
+      throw new Error('لم يتم إرجاع أي نتيجة من النموذج.');
     }
 
-    return response.text;
+    return JSON.parse(response.text) as VerificationResponse;
   } catch (error) {
     console.error('Error calling Gemini:', error);
     throw new Error('حدث خطأ أثناء فحص المحتوى. يرجى المحاولة مرة أخرى.');
   }
 }
+

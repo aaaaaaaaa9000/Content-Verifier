@@ -5,14 +5,15 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Search, AlertCircle, Loader2 } from 'lucide-react';
-import { verifyContent } from './services/ai';
+import { Search, AlertCircle, Loader2, FileText, LayoutGrid } from 'lucide-react';
+import { verifyContent, VerificationResponse } from './services/ai';
 
 export default function App() {
   const [content, setContent] = useState('');
-  const [result, setResult] = useState('');
+  const [result, setResult] = useState<VerificationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [viewMode, setViewMode] = useState<'bento' | 'report'>('bento');
 
   const handleVerify = async () => {
     if (!content.trim()) {
@@ -22,11 +23,12 @@ export default function App() {
 
     setIsLoading(true);
     setError('');
-    setResult('');
+    setResult(null);
 
     try {
       const verificationResult = await verifyContent(content);
       setResult(verificationResult);
+      setViewMode('bento');
     } catch (err: any) {
       setError(err.message || 'حدث خطأ غير متوقع');
     } finally {
@@ -36,8 +38,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-50 overflow-hidden font-sans" dir="rtl">
-      {/* Container matching Bento Grid's padding and gap */}
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] grid-rows-[auto_1fr] h-full gap-4 p-6 overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] grid-rows-[auto_1fr] h-full gap-4 p-4 md:p-6 overflow-hidden">
         
         {/* Header */}
         <header className="col-span-full flex justify-between items-center border-b border-slate-700 pb-4 shrink-0">
@@ -48,7 +49,7 @@ export default function App() {
           <div className="hidden sm:flex gap-6 text-sm">
             <span className="text-green-500 font-medium tracking-wide flex items-center gap-1">● محرك تحليل AI نشط</span>
             <span className="text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">المسودات</span>
-            <span className="text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">الاعدادات</span>
+            <span className="text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">الإعدادات</span>
           </div>
         </header>
 
@@ -91,22 +92,128 @@ export default function App() {
 
         {/* Results Region */}
         <main className="lg:row-start-2 flex flex-col overflow-hidden h-full">
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col h-full overflow-y-auto">
-              <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-4 flex items-center gap-1.5 shrink-0">
-                الخلاصة والنتيجة النهائية
-              </div>
-              {result ? (
-                <div className="markdown-body prose prose-invert prose-slate max-w-none prose-h1:text-sky-400 prose-a:text-sky-400 prose-headings:text-slate-50 prose-td:border-slate-700 prose-th:border-slate-700 prose-th:bg-slate-900 prose-tr:even:bg-white/5">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {result}
-                  </ReactMarkdown>
+            {result ? (
+              <div className="flex flex-col h-full overflow-hidden">
+                <div className="flex items-center gap-2 mb-4 shrink-0 px-1">
+                  <button 
+                    onClick={() => setViewMode('bento')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${viewMode === 'bento' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}
+                  >
+                    <LayoutGrid size={16} />
+                    لوحة الملخص
+                  </button>
+                  <button 
+                    onClick={() => setViewMode('report')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${viewMode === 'report' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}
+                  >
+                    <FileText size={16} />
+                    التقرير المفصل
+                  </button>
                 </div>
-              ) : (
+
+                <div className="flex-1 overflow-y-auto pr-1 pb-6 custom-scrollbar">
+                  {viewMode === 'bento' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-min">
+                      
+                      {/* Level */}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col col-span-1">
+                        <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-3">مستوى الفحص</div>
+                        <div className="text-xl lg:text-2xl font-bold mt-auto text-sky-400">{result.bentoData.investigationLevel.title}</div>
+                        <div className="text-xs text-slate-300 mt-2">{result.bentoData.investigationLevel.description}</div>
+                      </div>
+
+                      {/* Risk */}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col col-span-1">
+                        <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-3">مستوى الخطورة</div>
+                        <div className="mt-auto">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold inline-block ${result.bentoData.riskLevel.isHigh ? 'bg-red-500/20 text-red-500 border border-red-500/50' : 'bg-amber-500/20 text-amber-500 border border-amber-500/50'}`}>
+                            {result.bentoData.riskLevel.badge}
+                          </span>
+                          <p className={`text-xs mt-2 font-medium ${result.bentoData.riskLevel.isHigh ? 'text-red-400' : 'text-amber-400'}`}>
+                            {result.bentoData.riskLevel.details}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Score */}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col col-span-1">
+                        <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-1">الدرجة العامة</div>
+                        <div className={`w-14 h-14 rounded-full border-4 flex items-center justify-center text-xl font-extrabold my-2 ${result.bentoData.score >= 7 ? 'border-green-500 text-green-400' : result.bentoData.score >= 4 ? 'border-amber-500 text-amber-400' : 'border-red-500 text-red-400'}`}>
+                          {result.bentoData.score}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-auto">من أصل 10 نقاط مصداقية</div>
+                      </div>
+
+                      {/* Claims */}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col md:col-span-2">
+                        <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-4">تفكيك الادعاءات <span className="font-normal border border-white/10 px-2 py-0.5 rounded-full ml-1">{result.bentoData.claims.length} ادعاءات مستخرجة</span></div>
+                        <div className="space-y-1">
+                          {result.bentoData.claims.map((claim, idx) => (
+                            <div key={idx} className="flex justify-between py-2 border-b border-white/5 text-sm last:border-0 items-start gap-4">
+                              <span className="flex-1 text-slate-200">{idx + 1}. {claim.text}</span>
+                              <span className={`text-xs font-semibold shrink-0 ${claim.isDangerous ? 'text-red-400' : 'text-sky-400'}`}>{claim.assessment}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-4 col-span-1">
+                          {/* Misleading Patterns */}
+                          <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col flex-1">
+                            <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-3">أنماط التضليل المكتشفة</div>
+                            <div className="flex flex-wrap gap-1.5 mt-auto">
+                              {result.bentoData.misleadingPatterns.length > 0 ? result.bentoData.misleadingPatterns.map((pattern, idx) => (
+                                <span key={idx} className="text-[11px] py-1 px-2.5 bg-white/10 rounded-md text-slate-200 border border-white/5">
+                                  {pattern}
+                                </span>
+                              )) : <span className="text-sm text-slate-400">لا يوجد</span>}
+                            </div>
+                          </div>
+
+                          {/* Expertise */}
+                          <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col flex-1">
+                            <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-3">الخبرة المطلوبة للفحص</div>
+                            <div className="mt-auto space-y-2">
+                              {result.bentoData.expertise.map((exp, idx) => (
+                                <p key={idx} className="text-sm font-medium text-slate-200">{exp}</p>
+                              ))}
+                            </div>
+                          </div>
+                      </div>
+
+                      {/* Conclusion */}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col md:col-span-3">
+                        <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-3">الخلاصة والنتيجة النهائية</div>
+                        <div className="text-sm leading-relaxed text-slate-200">
+                          {result.bentoData.conclusion.text}
+                        </div>
+                        <div className="mt-4 text-sm font-semibold text-sky-400">
+                          ● {result.bentoData.conclusion.recommendation}
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 lg:p-10">
+                      <div className="markdown-body prose prose-invert prose-slate max-w-none prose-h1:text-sky-400 prose-a:text-sky-400 prose-headings:text-slate-50 prose-td:border-slate-700 prose-th:border-slate-700 prose-th:bg-slate-900 prose-tr:even:bg-white/5 rtl text-sm lg:text-base leading-loose">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {result.fullReport}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col h-full overflow-y-auto">
+                <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold mb-4 flex items-center gap-1.5 shrink-0">
+                  الخلاصة والنتيجة النهائية
+                </div>
                 <div className="flex-1 flex items-center justify-center text-slate-500 text-sm">
                   أدخل نصاً في الحقل الجانبي واضغط على بدء الفحص لعرض النتائج هنا.
                 </div>
-              )}
-            </div>
+              </div>
+            )}
         </main>
       </div>
     </div>
