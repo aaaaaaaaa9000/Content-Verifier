@@ -1,0 +1,31 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: 'Cairo', ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0f172a;
+  color: #f8fafc;
+  margin: 0;
+  padding: 0;
+}
+
+/* RTL overrides for Markdown content */
+.prose table {
+  text-align: right;
+  width: 100%;
+}
+
+.prose th, .prose td {
+  text-align: right;
+  border: 1px solid #334155;
+  padding: 0.5rem;
+}
+
+.prose th {
+  background-color: rgba(15, 23, 42, 0.5);
+  color: #94a3b8;
+}
