@@ -2,5 +2,5 @@
   "name": "Content Verifier",
   "description": "An application that fact-checks and verifies text content critically and objectively using AI.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

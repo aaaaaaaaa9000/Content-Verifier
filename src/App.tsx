@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Search, AlertCircle, Loader2, FileText, LayoutGrid } from 'lucide-react';
+import { Search, AlertCircle, Loader2, FileText, LayoutGrid, Download } from 'lucide-react';
 import { verifyContent, VerificationResponse } from './services/ai';
 
 export default function App() {
@@ -34,6 +34,20 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleExport = () => {
+    if (!result) return;
+    
+    const blob = new Blob([result.fullReport], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sadaq-report-${new Date().getTime()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -108,6 +122,14 @@ export default function App() {
                   >
                     <FileText size={16} />
                     التقرير المفصل
+                  </button>
+                  <button 
+                    onClick={handleExport}
+                    className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 mr-auto"
+                    title="تصدير التقرير"
+                  >
+                    <Download size={16} />
+                    تصدير
                   </button>
                 </div>
 
