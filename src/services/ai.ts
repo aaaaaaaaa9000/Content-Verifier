@@ -20,8 +20,8 @@ export async function verifyContent(text: string): Promise<VerificationResponse>
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'فشل الاتصال بالخادم');
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.error || `فشل الاتصال بالخادم (${response.status})`);
     }
 
     return await response.json();
