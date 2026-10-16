@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    container_name: ai-app-content-verifier
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.8-flash}
+      - APP_USERNAME=${APP_USERNAME:-user}
+      - APP_PASSWORD=${APP_PASSWORD}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
+      - MAX_INPUT_CHARS=${MAX_INPUT_CHARS:-20000}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-content-verifier.rule=Host(`${APP_DOMAIN:-sadaq.aaaaaaaaa9000.cloud}`)"
+      - "traefik.http.routers.ai-content-verifier.entrypoints=websecure"
+      - "traefik.http.routers.ai-content-verifier.tls=true"
+      - "traefik.http.routers.ai-content-verifier.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ai-content-verifier.loadbalancer.server.port=3000"
+      - "traefik.docker.network=automation-stack_automation-network"
+
+networks:
+  default:
+    name: automation-stack_automation-network
+    external: true

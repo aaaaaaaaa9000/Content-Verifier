@@ -1,20 +1,34 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# صدق — فاحص مصداقية المحتوى
 
-# Run and deploy your AI Studio app
+تطبيق يفحص النصوص فحصاً نقدياً ومنهجياً باستخدام Gemini، ويعرض لوحة ملخص وتقريراً مفصلاً قابلاً للتصدير.
 
-This contains everything you need to run your app locally.
+## التشغيل محلياً
 
-View your app in AI Studio: https://ai.studio/apps/95e46512-4da7-40fd-ac6c-39ae3cc112b2
+**المتطلبات:** Node.js 22+
 
-## Run Locally
+1. `npm install`
+2. انسخ `.env.example` إلى `.env` وضع قيمة `GEMINI_API_KEY`
+3. `npm run dev` ثم افتح http://localhost:3000
 
-**Prerequisites:**  Node.js
+## متغيرات البيئة
 
+| المتغير | الافتراضي | الوصف |
+|---|---|---|
+| `GEMINI_API_KEY` | — | مطلوب |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | الموديل المستخدم |
+| `APP_USERNAME` / `APP_PASSWORD` | `user` / فارغ | حماية بكلمة مرور (Basic Auth) — تُفعَّل فقط لو `APP_PASSWORD` له قيمة |
+| `RATE_LIMIT_PER_MINUTE` | `10` | أقصى عدد فحوصات لكل IP في الدقيقة |
+| `MAX_INPUT_CHARS` | `20000` | أقصى طول للنص |
+| `PORT` | `3000` | منفذ السيرفر |
+| `APP_DOMAIN` | `sadaq.aaaaaaaaa9000.cloud` | الدومين في راوتر Traefik |
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## النشر على السيرفر (Portainer + Traefik)
+
+1. Portainer → Stacks → Add stack → **Repository**
+2. Repository URL: `https://github.com/aaaaaaaaa9000/Content-Verifier`، Compose path: `docker-compose.yml`
+3. أضف متغيرات البيئة: `GEMINI_API_KEY`, `APP_PASSWORD` (و`APP_DOMAIN` لو عايز دومين مختلف)
+4. Deploy — Traefik هيطلع شهادة SSL تلقائياً.
+
+أو بدون Portainer: `docker compose up -d --build` (يتطلب وجود شبكة `automation-stack_automation-network`).
+
+فحص الصحة: `GET /api/health`

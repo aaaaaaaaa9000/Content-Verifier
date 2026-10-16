@@ -8,6 +8,8 @@ import remarkGfm from 'remark-gfm';
 import { Search, AlertCircle, Loader2, FileText, LayoutGrid, Download } from 'lucide-react';
 import { verifyContent, VerificationResponse } from './services/ai';
 
+const MAX_INPUT_CHARS = 20000;
+
 export default function App() {
   const [content, setContent] = useState('');
   const [result, setResult] = useState<VerificationResponse | null>(null);
@@ -62,8 +64,6 @@ export default function App() {
           </div>
           <div className="hidden sm:flex gap-6 text-sm">
             <span className="text-green-500 font-medium tracking-wide flex items-center gap-1">● محرك تحليل AI نشط</span>
-            <span className="text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">المسودات</span>
-            <span className="text-slate-400 hover:text-slate-300 cursor-pointer transition-colors">الإعدادات</span>
           </div>
         </header>
 
@@ -75,8 +75,12 @@ export default function App() {
             placeholder="انسخ النص هنا..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            maxLength={MAX_INPUT_CHARS}
             disabled={isLoading}
           />
+          <div className="text-xs text-slate-500 -mt-2 text-left" dir="ltr">
+            {content.length.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 text-red-500 bg-red-500/10 p-3 rounded-lg border border-red-500/20">

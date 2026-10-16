@@ -1,6 +1,6 @@
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
+import crypto from "crypto";
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import dotenv from "dotenv";
 
@@ -147,35 +147,105 @@ const responseSchema: Schema = {
   required: ["bentoData", "fullReport"]
 };
 
+const PORT = Number(process.env.PORT) || 3000;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS) || 20000;
+const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 10;
+const APP_USERNAME = process.env.APP_USERNAME || "user";
+const APP_PASSWORD = process.env.APP_PASSWORD || "";
+
+function safeEqual(a: string, b: string) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+}
+
+// Optional HTTP Basic Auth: enabled only when APP_PASSWORD is set.
+function basicAuth(req: Request, res: Response, next: NextFunction) {
+  if (!APP_PASSWORD || req.path === "/api/health") return next();
+
+  const header = req.headers.authorization || "";
+  if (header.startsWith("Basic ")) {
+    const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
+    const sep = decoded.indexOf(":");
+    const user = decoded.slice(0, sep);
+    const pass = decoded.slice(sep + 1);
+    if (sep !== -1 && safeEqual(user, APP_USERNAME) && safeEqual(pass, APP_PASSWORD)) {
+      return next();
+    }
+  }
+
+  res.setHeader("WWW-Authenticate", 'Basic realm="Sadaq", charset="UTF-8"');
+  res.status(401).send("Authentication required");
+}
+
+// Simple in-memory per-IP rate limiter (fixed one-minute window).
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimit(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const key = req.ip || "unknown";
+  let bucket = rateBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + 60_000 };
+    rateBuckets.set(key, bucket);
+  }
+  bucket.count++;
+  if (bucket.count > RATE_LIMIT_PER_MINUTE) {
+    res.setHeader("Retry-After", Math.ceil((bucket.resetAt - now) / 1000));
+    return res.status(429).json({ error: "تم تجاوز عدد الطلبات المسموح. حاول مرة أخرى بعد دقيقة." });
+  }
+  next();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) rateBuckets.delete(key);
+  }
+}, 60_000).unref();
+
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined in the environment");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
 
-  app.use(express.json());
+  // Behind a reverse proxy (Traefik), so req.ip reflects the real client.
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
 
-  app.post("/api/verify", async (req, res) => {
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  app.use(basicAuth);
+  app.use(express.json({ limit: "256kb" }));
+
+  app.post("/api/verify", rateLimit, async (req, res) => {
     try {
-      const { text } = req.body;
-      if (!text) {
-        return res.status(400).json({ error: "Text is required" });
+      const { text } = req.body ?? {};
+      if (typeof text !== "string" || !text.trim()) {
+        return res.status(400).json({ error: "يرجى إدخال نص للفحص." });
+      }
+      if (text.length > MAX_INPUT_CHARS) {
+        return res.status(413).json({
+          error: `النص طويل جداً. الحد الأقصى ${MAX_INPUT_CHARS.toLocaleString("ar-EG")} حرف.`,
+        });
       }
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("GEMINI_API_KEY is not defined in the environment");
-      }
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+      const response = await getAiClient().models.generateContent({
+        model: GEMINI_MODEL,
         contents: text,
         config: {
           systemInstruction: SYSTEM_PROMPT,
@@ -191,14 +261,14 @@ async function startServer() {
       res.json(JSON.parse(response.text));
     } catch (error: any) {
       console.error("Gemini API Error:", error);
-      res.status(500).json({ 
-        error: "حدث خطأ أثناء فحص المحتوى. يرجى التأكد من مفتاح API والمحاولة مرة أخرى.",
-        details: error.message 
+      res.status(500).json({
+        error: "حدث خطأ أثناء فحص المحتوى. يرجى المحاولة مرة أخرى.",
       });
     }
   });
 
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -206,14 +276,17 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    // Hashed build assets can be cached forever; index.html must always revalidate.
+    app.use("/assets", express.static(path.join(distPath, "assets"), { maxAge: "1y", immutable: true }));
+    app.use(express.static(distPath, { index: false }));
+    app.get("*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT} (model: ${GEMINI_MODEL})`);
   });
 }
 
