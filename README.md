@@ -15,7 +15,7 @@
 | المتغير | الافتراضي | الوصف |
 |---|---|---|
 | `GEMINI_API_KEY` | — | مطلوب |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | الموديل المستخدم |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | الموديل المستخدم |
 | `APP_USERNAME` / `APP_PASSWORD` | `user` / فارغ | حماية بكلمة مرور (Basic Auth) — تُفعَّل فقط لو `APP_PASSWORD` له قيمة |
 | `RATE_LIMIT_PER_MINUTE` | `10` | أقصى عدد فحوصات لكل IP في الدقيقة |
 | `MAX_INPUT_CHARS` | `20000` | أقصى طول للنص |

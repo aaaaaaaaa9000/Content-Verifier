@@ -6,7 +6,7 @@ services:
     environment:
       - NODE_ENV=production
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.8-flash}
       - APP_USERNAME=${APP_USERNAME:-user}
       - APP_PASSWORD=${APP_PASSWORD}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}

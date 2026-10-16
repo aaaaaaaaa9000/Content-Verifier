@@ -148,7 +148,7 @@ const responseSchema: Schema = {
 };
 
 const PORT = Number(process.env.PORT) || 3000;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS) || 20000;
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 10;
 const APP_USERNAME = process.env.APP_USERNAME || "user";
