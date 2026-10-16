@@ -11,6 +11,7 @@ services:
       - APP_PASSWORD=${APP_PASSWORD}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
       - MAX_INPUT_CHARS=${MAX_INPUT_CHARS:-20000}
+      - ENABLE_SEARCH=${ENABLE_SEARCH:-true}
     logging:
       driver: "json-file"
       options:

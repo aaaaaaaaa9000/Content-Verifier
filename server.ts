@@ -1,12 +1,12 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import crypto from "crypto";
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, ThinkingLevel, type GroundingMetadata } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const SYSTEM_PROMPT = `أريد منك أن تفحص المحتوى التالي فحصا نقديا، علميا، منهجيا، ومحايدا، بدون أي انحياز لصاحب المحتوى أو شهرته أو مكانته أو أسلوب عرضه، وبدون الانحياز لآرائي أنا أو لما تعرفه عني أو لأي موقف سابق قلته في محادثات أخرى.
+const METHODOLOGY_PROMPT = `أريد منك أن تفحص المحتوى التالي فحصا نقديا، علميا، منهجيا، ومحايدا، بدون أي انحياز لصاحب المحتوى أو شهرته أو مكانته أو أسلوب عرضه، وبدون الانحياز لآرائي أنا أو لما تعرفه عني أو لأي موقف سابق قلته في محادثات أخرى.
 تعامل مع المحتوى كأنه صادر من شخص مجهول. قيّم الأفكار والادعاءات فقط، ولا تهاجم الشخص.
 
 أولا: حدد مستوى الفحص المناسب:
@@ -80,66 +80,89 @@ const SYSTEM_PROMPT = `أريد منك أن تفحص المحتوى التالي
 إذا كان المحتوى دينيا أو عقائديا: لا تحكم على صحة العقائد الدينية أو الغيبية كمسألة إيمانية. لكن يمكنك فحص الادعاءات القابلة للتحقق المرتبطة بها، مثل الادعاءات التاريخية، اللغوية، الطبية، العلمية، الاجتماعية، أو القانونية.
 
 خامس عشر: التقرير المفصل
-قم بكتابة تقرير مفصل بصيغة Markdown يتضمن جدول الادعاءات (رقم، نص، نوع، قابل للتحقق، قوة الدليل، التقييم، الدرجة، السبب، الصياغة الأدق) بالإضافة إلى كافة التفاصيل المذكورة في الخطوات السابقة، بشكل مرتب وواضح ومتسلسل.
+قم بكتابة تقرير مفصل بصيغة Markdown يتضمن جدول الادعاءات (رقم، نص، نوع، قابل للتحقق، قوة الدليل، التقييم، الدرجة، السبب، الصياغة الأدق) بالإضافة إلى كافة التفاصيل المذكورة في الخطوات السابقة، بشكل مرتب وواضح ومتسلسل.`;
+
+// Single-call mode (search disabled): report and dashboard data in one structured response.
+const JSON_PROMPT = `${METHODOLOGY_PROMPT}
 
 سادس عشر: الخلاصة المهيكلة
 يجب أن ترجع ردك بصيغة JSON مقسمة إلى قسمين: Data للبيانات المهيكلة للوحة البيانات (Bento Grid) وقسم FullReport للتقرير المفصل بـ Markdown.`;
 
+// Search mode, step 1: research with Google Search and write the Markdown report.
+const SEARCH_PROMPT = `${METHODOLOGY_PROMPT}
+
+سادس عشر: البحث والتحقق من المصادر
+قبل كتابة أي تقييم، استخدم أداة البحث في Google للتحقق من كل ادعاء قابل للتحقق: الأرقام، التواريخ، الأخبار، التصريحات المنسوبة لأشخاص أو جهات، الدراسات، والإرشادات الرسمية.
+اعتمد على نتائج البحث الفعلية وليس على ذاكرتك وحدها، ووضح لكل ادعاء ما وجدته في المصادر. لو لم تجد مصادر كافية لادعاء ما، قل ذلك صراحة بدلا من التخمين.
+اذكر أسماء المصادر والجهات التي اعتمدت عليها داخل التقرير، لكن لا تكتب روابط URL بنفسك، لأن الروابط الفعلية للمصادر ستُعرض تلقائيا أسفل التقرير.
+
+سابع عشر: صيغة الرد
+اكتب الرد كتقرير Markdown مفصل فقط كما في البند خامس عشر، بدون JSON وبدون أي مقدمة أو تعليق خارج التقرير.`;
+
+// Search mode, step 2: turn the finished report into dashboard data.
+const EXTRACT_PROMPT = `أمامك نص أصلي وتقرير فحص مصداقية مفصل عنه.
+استخرج من التقرير البيانات المهيكلة للوحة الملخص حسب المخطط المطلوب.
+التزم بما ورد في التقرير فقط، ولا تضف معلومات أو أحكاما أو درجات جديدة من عندك.
+score هو الدرجة العامة لمصداقية المحتوى من 0 إلى 10 كما يستنتج من التقرير.
+اكتب كل النصوص باللغة العربية وبإيجاز مناسب للوحة ملخص.`;
+
+const bentoSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    investigationLevel: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        description: { type: Type.STRING }
+      },
+      required: ["title", "description"]
+    },
+    riskLevel: {
+      type: Type.OBJECT,
+      properties: {
+        badge: { type: Type.STRING },
+        details: { type: Type.STRING },
+        isHigh: { type: Type.BOOLEAN }
+      },
+      required: ["badge", "details", "isHigh"]
+    },
+    score: { type: Type.NUMBER },
+    claims: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          text: { type: Type.STRING },
+          assessment: { type: Type.STRING },
+          isDangerous: { type: Type.BOOLEAN }
+        },
+        required: ["text", "assessment", "isDangerous"]
+      }
+    },
+    misleadingPatterns: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING }
+    },
+    expertise: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING }
+    },
+    conclusion: {
+      type: Type.OBJECT,
+      properties: {
+        text: { type: Type.STRING },
+        recommendation: { type: Type.STRING }
+      },
+      required: ["text", "recommendation"]
+    }
+  },
+  required: ["investigationLevel", "riskLevel", "score", "claims", "misleadingPatterns", "expertise", "conclusion"]
+};
+
 const responseSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    bentoData: {
-      type: Type.OBJECT,
-      properties: {
-        investigationLevel: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING }
-          },
-          required: ["title", "description"]
-        },
-        riskLevel: {
-          type: Type.OBJECT,
-          properties: {
-            badge: { type: Type.STRING },
-            details: { type: Type.STRING },
-            isHigh: { type: Type.BOOLEAN }
-          },
-          required: ["badge", "details", "isHigh"]
-        },
-        score: { type: Type.NUMBER },
-        claims: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              text: { type: Type.STRING },
-              assessment: { type: Type.STRING },
-              isDangerous: { type: Type.BOOLEAN }
-            },
-            required: ["text", "assessment", "isDangerous"]
-          }
-        },
-        misleadingPatterns: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        },
-        expertise: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        },
-        conclusion: {
-          type: Type.OBJECT,
-          properties: {
-            text: { type: Type.STRING },
-            recommendation: { type: Type.STRING }
-          },
-          required: ["text", "recommendation"]
-        }
-      },
-      required: ["investigationLevel", "riskLevel", "score", "claims", "misleadingPatterns", "expertise", "conclusion"]
-    },
+    bentoData: bentoSchema,
     fullReport: {
       type: Type.STRING
     }
@@ -149,6 +172,8 @@ const responseSchema: Schema = {
 
 const PORT = Number(process.env.PORT) || 3000;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+// Google Search grounding. Billed per search query on Gemini 3+ models, so it can be turned off.
+const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== "false";
 const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS) || 20000;
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 10;
 const APP_USERNAME = process.env.APP_USERNAME || "user";
@@ -218,6 +243,89 @@ function getAiClient() {
   return aiClient;
 }
 
+interface Source {
+  title: string;
+  url: string;
+}
+
+function extractGrounding(metadata: GroundingMetadata | undefined) {
+  const sources: Source[] = [];
+  const seen = new Set<string>();
+  for (const chunk of metadata?.groundingChunks ?? []) {
+    const url = chunk.web?.uri;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    sources.push({ title: chunk.web?.title || new URL(url).hostname, url });
+  }
+  return {
+    sources,
+    searchQueries: metadata?.webSearchQueries ?? [],
+    // Google requires showing these Search Suggestions alongside grounded results.
+    searchSuggestionsHtml: metadata?.searchEntryPoint?.renderedContent,
+  };
+}
+
+function stripMarkdownFence(text: string) {
+  return text.trim().replace(/^```(?:markdown|md)?\s*\n/i, "").replace(/\n```\s*$/, "").trim();
+}
+
+// Gemini models that ignore tools when a responseSchema is set need two calls:
+// a grounded research call that writes the report, then a structured extraction call.
+async function verifyWithSearch(ai: GoogleGenAI, text: string) {
+  const research = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: text,
+    config: {
+      systemInstruction: SEARCH_PROMPT,
+      tools: [{ googleSearch: {} }],
+    },
+  });
+
+  if (!research.text) {
+    throw new Error("Empty report from Gemini");
+  }
+  const fullReport = stripMarkdownFence(research.text);
+
+  const summary = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: `النص الأصلي:\n${text}\n\n---\n\nالتقرير:\n${fullReport}`,
+    config: {
+      systemInstruction: EXTRACT_PROMPT,
+      responseMimeType: "application/json",
+      responseSchema: bentoSchema,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    },
+  });
+
+  if (!summary.text) {
+    throw new Error("Empty summary from Gemini");
+  }
+
+  return {
+    bentoData: JSON.parse(summary.text),
+    fullReport,
+    ...extractGrounding(research.candidates?.[0]?.groundingMetadata),
+  };
+}
+
+async function verifyWithoutSearch(ai: GoogleGenAI, text: string) {
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: text,
+    config: {
+      systemInstruction: JSON_PROMPT,
+      responseMimeType: "application/json",
+      responseSchema: responseSchema,
+    },
+  });
+
+  if (!response.text) {
+    throw new Error("Empty response from Gemini");
+  }
+
+  return { ...JSON.parse(response.text), sources: [], searchQueries: [] };
+}
+
 async function startServer() {
   const app = express();
 
@@ -244,21 +352,9 @@ async function startServer() {
         });
       }
 
-      const response = await getAiClient().models.generateContent({
-        model: GEMINI_MODEL,
-        contents: text,
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-        },
-      });
-
-      if (!response.text) {
-        throw new Error("Empty response from Gemini");
-      }
-
-      res.json(JSON.parse(response.text));
+      const ai = getAiClient();
+      const result = ENABLE_SEARCH ? await verifyWithSearch(ai, text) : await verifyWithoutSearch(ai, text);
+      res.json(result);
     } catch (error: any) {
       console.error("Gemini API Error:", error);
       res.status(500).json({
@@ -286,7 +382,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT} (model: ${GEMINI_MODEL})`);
+    console.log(`Server running on http://localhost:${PORT} (model: ${GEMINI_MODEL}, search: ${ENABLE_SEARCH ? "on" : "off"})`);
   });
 }
 

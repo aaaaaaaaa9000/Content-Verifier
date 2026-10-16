@@ -1,3 +1,8 @@
+export interface Source {
+  title: string;
+  url: string;
+}
+
 export interface VerificationResponse {
   bentoData: {
     investigationLevel: { title: string; description: string; };
@@ -9,6 +14,9 @@ export interface VerificationResponse {
     conclusion: { text: string; recommendation: string; };
   };
   fullReport: string;
+  sources: Source[];
+  searchQueries: string[];
+  searchSuggestionsHtml?: string;
 }
 
 export async function verifyContent(text: string): Promise<VerificationResponse> {
