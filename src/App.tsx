@@ -2,13 +2,78 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Search, AlertCircle, Loader2, FileText, LayoutGrid, Download } from 'lucide-react';
-import { verifyContent, VerificationResponse } from './services/ai';
+import { AlertCircle, Loader2, FileText, LayoutGrid, Download, ExternalLink, Globe } from 'lucide-react';
+import { verifyContent, VerificationResponse, Source } from './services/ai';
 
 const MAX_INPUT_CHARS = 20000;
+
+function SearchSuggestions({ html }: { html: string }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const resize = () => {
+    const doc = frameRef.current?.contentDocument;
+    if (doc && frameRef.current) {
+      frameRef.current.style.height = `${doc.documentElement.scrollHeight}px`;
+    }
+  };
+
+  // Rendered as provided by Google, isolated in a sandboxed frame; links open in a new tab.
+  return (
+    <iframe
+      ref={frameRef}
+      title="اقتراحات بحث Google"
+      srcDoc={`<base target="_blank">${html}`}
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      onLoad={resize}
+      className="w-full border-0 rounded-lg"
+      style={{ height: 60, colorScheme: 'normal' }}
+    />
+  );
+}
+
+function SourcesList({ sources }: { sources: Source[] }) {
+  return (
+    <ol className="space-y-1.5">
+      {sources.map((source, idx) => (
+        <li key={source.url}>
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm text-slate-200 hover:text-sky-400 transition-colors"
+          >
+            <span className="text-xs text-slate-500 w-5 shrink-0" dir="ltr">{idx + 1}.</span>
+            <span className="truncate" dir="ltr">{source.title}</span>
+            <ExternalLink size={12} className="shrink-0 opacity-60" />
+          </a>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SourcesCard({ result }: { result: VerificationResponse }) {
+  const sources = result.sources ?? [];
+  return (
+    <div className="bg-slate-800 rounded-2xl border border-slate-700 p-5 flex flex-col gap-3">
+      <div className="text-xs uppercase text-slate-400 tracking-wider font-semibold flex items-center gap-1.5">
+        <Globe size={14} />
+        المصادر المستخدمة في التحقق
+        {sources.length > 0 && (
+          <span className="font-normal border border-white/10 px-2 py-0.5 rounded-full mr-1">{sources.length} مصدر</span>
+        )}
+      </div>
+      {sources.length > 0 ? (
+        <SourcesList sources={sources} />
+      ) : (
+        <p className="text-sm text-slate-400">لم يتم الاعتماد على مصادر من البحث في هذا الفحص.</p>
+      )}
+      {result.searchSuggestionsHtml && <SearchSuggestions html={result.searchSuggestionsHtml} />}
+    </div>
+  );
+}
 
 export default function App() {
   const [content, setContent] = useState('');
@@ -41,7 +106,11 @@ export default function App() {
   const handleExport = () => {
     if (!result) return;
     
-    const blob = new Blob([result.fullReport], { type: 'text/markdown' });
+    const sources = result.sources ?? [];
+    const sourcesSection = sources.length
+      ? `\n\n## المصادر\n\n${sources.map((s, i) => `${i + 1}. [${s.title}](${s.url})`).join('\n')}\n`
+      : '';
+    const blob = new Blob([result.fullReport + sourcesSection], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -97,14 +166,14 @@ export default function App() {
             {isLoading ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>جاري الفحص الدقيق...</span>
+                <span>جاري البحث والتحقق من المصادر...</span>
               </>
             ) : (
               <span>بدء الفحص النقدي</span>
             )}
           </button>
           <div className="text-xs text-slate-400 leading-relaxed">
-            سيتم الفحص بناءً على المنهجية العلمية والتحقق من الأدلة والادعاءات بشكل محايد.
+            سيتم الفحص بناءً على المنهجية العلمية والبحث في Google للتحقق من الأدلة والادعاءات بشكل محايد. قد يستغرق الفحص حتى دقيقة.
           </div>
         </aside>
 
@@ -218,13 +287,23 @@ export default function App() {
                         </div>
                       </div>
 
+                      <div className="md:col-span-2 lg:col-span-3">
+                        <SourcesCard result={result} />
+                      </div>
+
                     </div>
                   ) : (
                     <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6 lg:p-10">
                       <div className="markdown-body prose prose-invert prose-slate max-w-none prose-h1:text-sky-400 prose-a:text-sky-400 prose-headings:text-slate-50 prose-td:border-slate-700 prose-th:border-slate-700 prose-th:bg-slate-900 prose-tr:even:bg-white/5 rtl text-sm lg:text-base leading-loose">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{ a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}
+                        >
                           {result.fullReport}
                         </ReactMarkdown>
+                      </div>
+                      <div className="mt-8">
+                        <SourcesCard result={result} />
                       </div>
                     </div>
                   )}
